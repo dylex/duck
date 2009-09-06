@@ -1,3 +1,8 @@
+---
+title: Test
+---
 Welcome to the duck wiki!
 
 Currently this may be used to supplement/parallel the content in @duck/doc@.
+
+"link":Home
