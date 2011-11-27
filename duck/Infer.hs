@@ -85,7 +85,7 @@ lookupFunction f =
 lookupCons :: [(Loc CVar, [t])] -> CVar -> Maybe [t]
 lookupCons cases c = fmap snd (List.find ((c ==) . unLoc . fst) cases)
 
-withGlobals :: GlobalTypes -> Infer [(Var,GlobalType)] -> Infer GlobalTypes
+withGlobals :: GlobalTypes -> Infer [(Var,TypeVal)] -> Infer GlobalTypes
 withGlobals g f =
   foldr (uncurry insertVar) g <$> 
     Reader.local (first (\p -> p{ progGlobalTypes = g })) f
@@ -97,7 +97,7 @@ withGlobals g f =
 prog :: Infer GlobalTypes
 prog = foldM (\g -> withGlobals g . definition) Map.empty . progDefinitions =<< getProg
 
-definition :: Definition -> Infer [(Var,GlobalType)]
+definition :: Definition -> Infer [(Var,TypeVal)]
 definition d@(Def st vl e) =
   withFrame (V $ intercalate "," $ map (\(L _ (V s)) -> s) vl) [] l $ do
   t <- expr st Map.empty l e
@@ -111,8 +111,7 @@ definition d@(Def st vl e) =
             return tl
           ([],_) -> inferError l $ "expected (), got" <+> quoted t
           _ -> inferError l $ "expected" <+> length vl <> "-tuple, got" <+> quoted t
-  return $ zipWith3 (\v t i -> (unLoc v,(t,(e,i)))) vl tl $
-    case tl of { [_] -> [Nothing] ; _ -> map Just [0..] }
+  return $ zipWith ((,) . unLoc) vl tl
   where l = loc d
 
 isStatic :: TypeVal -> Bool
@@ -160,7 +159,7 @@ expr static env loc e = checkStatic =<< exp e where
       t -> do
         caseResults <- mapM caseType pl
         defaultResults <- defaultType def
-        unifyList loc (caseResults ++ defaultResults)
+        unifyList static loc (caseResults ++ defaultResults)
         where
         caseType (c,vl,e') = case lookupCons conses c of
           Just tl | length tl == length vl ->
@@ -194,19 +193,11 @@ atom :: Bool -> Locals -> SrcLoc -> Atom -> Infer TypeVal
 atom False _ _ (AtomVal (Any t _)) = return t
 atom True _ _ (AtomVal tv) = return $ TyStatic tv
 atom _ env loc (AtomLocal v) = lookupVariable loc v env
-atom False _ loc (AtomGlobal v) = fst =.< lookupVariable loc v . progGlobalTypes =<< getProg
-atom True _ loc (AtomGlobal v) = do
-  (t, (e, i)) <- lookupVariable loc v . progGlobalTypes =<< getProg
-  if isStatic t
+atom static _ loc (AtomGlobal v) = do
+  t <- lookupVariable loc v . progGlobalTypes =<< getProg
+  if not static || isStatic t
     then return t
-    else maybe return pick i =<< expr True Map.empty loc e
-  where
-  pick i (TyStatic (Any (TyCons c tl) d)) | isDatatypeTuple c =
-    return $ TyStatic $ Any (tl !! i) di
-    where di = unsafeUnvalConsNth d i
-  pick i (TyCons c tl) | isDatatypeTuple c = -- this is probably an error if not impossible
-    return $ tl !! i
-  pick _ t = inferError loc $ "expected static tuple, got" <+> t
+    else inferError loc $ "non-static global variable in static expression" <:> quoted v
 
 cons :: Bool -> SrcLoc -> Datatype -> Int -> [TypeVal] -> Infer TypeVal
 cons static loc d c args = do
@@ -230,19 +221,19 @@ spec loc ts e t = do
       subset t ts)
   return $ reStatic t $ substVoid tenv ts
 
-unify :: SrcLoc -> TypeVal -> TypeVal -> Infer TypeVal
-unify loc (TyStatic (Any t1 v1)) (TyStatic (Any t2 v2)) = do
-  t <- unify loc t1 t2
+unify :: Bool -> SrcLoc -> TypeVal -> TypeVal -> Infer TypeVal
+unify True loc (TyStatic (Any t1 v1)) (TyStatic (Any t2 v2)) = do
+  t <- unify False loc t1 t2
   unless (Any t v1 == Any t v2) $ inferError loc "indeterminate static values in return"
   return $ TyStatic (Any t v1)
 -- if only one static, it's dropped:
-unify loc t1 t2 =
+unify _ loc t1 t2 =
   typeReError loc ("failed to unify types" <+> quoted t1 <+> "and" <+> quoted t2) $
     union t1 t2
 
 -- In future, we might want this to produce more informative error messages
-unifyList :: SrcLoc -> [TypeVal] -> Infer TypeVal
-unifyList loc = foldM1 (unify loc)
+unifyList :: Bool -> SrcLoc -> [TypeVal] -> Infer TypeVal
+unifyList static loc = foldM1 (unify static loc)
 
 apply :: Bool -> SrcLoc -> TypeVal -> TypeVal -> Infer (Trans, TypeVal)
 apply _ _ TyVoid _ = return (NoTrans, TyVoid)
@@ -251,7 +242,7 @@ apply static loc (TyFun fl) t2 = do
   (t:tt, l) <- mapAndUnzipM fun fl
   unless (all (t ==) tt) $
     inferError loc ("conflicting transforms applying" <+> quoted fl <+> "to" <+> quoted t2)
-  (,) t <$> unifyList loc l
+  (,) t <$> unifyList static loc l
   where
   fun f@(FunArrow t a r) = do
     typeReError loc ("cannot apply" <+> quoted f <+> "to" <+> quoted t2) $

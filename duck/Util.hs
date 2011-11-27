@@ -75,6 +75,7 @@ zipCheck _ _ = mzero
 zipWithCheck :: MonadPlus m => (a -> b -> c) -> [a] -> [b] -> m [c]
 zipWithCheck f x y = map (uncurry f) =.< zipCheck x y
 
+-- | (...) = (.).(.)
 (...) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (...) f g x y = f (g x y)
 

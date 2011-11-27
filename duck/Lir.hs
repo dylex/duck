@@ -11,7 +11,7 @@ module Lir
   , ProgMonad(..)
   , Overload(..), Definition(..)
   , Overloads
-  , GlobalType, GlobalTypes
+  , GlobalTypes
   , Exp(..)
   , Atom(..)
   , Kind(..), Globals
@@ -84,8 +84,7 @@ data Definition = Def
   }
 instance HasLoc Definition where loc = loc . defVars
 
-type GlobalType = (TypeVal, (Exp, Maybe Int))
-type GlobalTypes = Map Var GlobalType
+type GlobalTypes = Map Var TypeVal
 
 class Monad m => ProgMonad m where
   getProg :: m Prog
@@ -233,7 +232,7 @@ complete datatypes prog = flip execState prog $ mapM_ datatype $ Map.elems datat
     info (DataAlgebraic conses) = mapM_ cons (zip [0..] conses)
     info (DataPrim _) = nop
     cons :: (Int, (Loc CVar, [TypePat])) -> State Prog ()
-    cons (i,(c,[])) = modify $ \p -> p { progDefinitions = Def False [c] (ExpCons d i []) : progDefinitions p }
+    cons (i,(c,[])) = modify $ \p -> p { progDefinitions = Def True [c] (ExpCons d i []) : progDefinitions p }
     cons (i,(c,tyl)) = overload c tl r vl (ExpCons d i (map expLocal vl)) where
       vl = take (length tyl) standardVars
       (tl,r) = generalType vl

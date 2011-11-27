@@ -44,7 +44,7 @@ prog :: Prog -> ModuleName -> [Ir.Decl] -> Prog
 prog base name decls = complete denv . unreverse . fst $ execState (mapM_ decl decls) start where
   denv = unsafePerformIO $ datatypes (progDatatypes base) decls
   denv' = Map.unionWith (error "unexpected duplicate datatype in ToLir.prog") (progDatatypes base) denv
-  globals = foldl declVars (Lir.globals base) decls
+  globals = foldl' declVars (Lir.globals base) decls
   start = (base { progName = name, progDatatypes = denv', progDefinitions = reverse (progDefinitions base) }, globals)
   unreverse p = p { progDefinitions = reverse (progDefinitions p) } -- Definitions are added in reverse, so reverse again
 

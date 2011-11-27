@@ -145,7 +145,7 @@ main = do
   lir <- phase' StageLir id $ ToLir.progs Base.base ir
   _ <- phase' StageLink (const ()) $ Lir.check lir
   lir <- phase StageInfer id $ runInferProg Infer.prog lir
-  _ <- phase StageExec (\v -> (Map.map fst $ Lir.progGlobalTypes lir, v)) $ runExec lir Interp.prog
+  _ <- phase StageExec (\v -> (Lir.progGlobalTypes lir, v)) $ runExec lir Interp.prog
   nop
 
 -- for ghci use
